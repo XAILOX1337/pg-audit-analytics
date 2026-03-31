@@ -122,39 +122,6 @@ Edit `docker/postgres.conf` to customize:
 - Audit log level
 - CSV log rotation settings
 
-## Usage Examples
-
-### Anomaly Detection
-
-```python
-from analytics.anomaly_detection import AnomalyDetector
-from analytics.feature_eng import FeatureEngineer
-import pandas as pd
-
-# Load data
-df = pd.read_sql_query("SELECT * FROM audit_data.log_entries", engine)
-
-# Engineer features
-fe = FeatureEngineer(df)
-fe.extract_time_features()
-fe.extract_operation_features()
-feature_matrix, feature_names = fe.get_feature_matrix()
-
-# Detect anomalies
-detector = AnomalyDetector(feature_matrix, feature_names)
-predictions = detector.fit_isolation_forest(contamination=0.05)
-anomalies = detector.get_anomalies(predictions)
-```
-
-### Clustering
-
-```python
-from analytics.clustering import AuditClustering
-
-clustering = AuditClustering(feature_matrix, feature_names)
-labels = clustering.fit_kmeans(n_clusters=5)
-centers = clustering.get_cluster_centers()
-```
 
 
 
