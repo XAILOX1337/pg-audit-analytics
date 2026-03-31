@@ -67,33 +67,8 @@ cd docker
 docker-compose up -d
 ```
 
-### 4. Generate Test Data (Optional)
 
-```bash
-python scripts/load_generator.py
-```
-
-### 5. Run ETL Pipeline
-
-```python
-from etl.db_client import DatabaseClient
-from etl.parser import LogParser
-from etl.loader import DataLoader
-
-# Initialize
-db = DatabaseClient()
-loader = DataLoader(db)
-
-# Create schema
-loader.create_audit_schema()
-
-# Parse and load logs
-parser = LogParser('data/raw_logs/your-log-file.csv')
-entries = parser.parse_file()
-loader.load_entries(entries)
-```
-
-### 6. Run Analysis
+### 4. Run Analysis
 
 Open `notebooks/analysis_dashboard.ipynb` in Jupyter:
 
@@ -101,19 +76,6 @@ Open `notebooks/analysis_dashboard.ipynb` in Jupyter:
 jupyter notebook notebooks/analysis_dashboard.ipynb
 ```
 
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=audit_db
-DB_USER=admin
-DB_PASSWORD=admin123
-```
 
 ### PostgreSQL Settings
 
