@@ -1,4 +1,4 @@
-# pg-audit-lens
+# pg-audit-analytics
 
 PostgreSQL audit log analysis tool with machine learning-based anomaly detection.
 
@@ -15,76 +15,143 @@ PostgreSQL audit log analysis tool with machine learning-based anomaly detection
 
 ```
 pg-audit-analytics/
-├── docker/                     # Infrastructure configuration
-│   ├── postgres.conf           # PostgreSQL and pgAudit settings
-│   └── docker-compose.yml      # One-click database setup
-├── data/                       # Data storage (in .gitignore)
-│   ├── raw_logs/               # PostgreSQL CSV logs
-│   └── processed/              # Processed analysis results
-├── etl/                        # Data engineering (Phase 2)
-│   ├── db_client.py            # Database connection (SQLAlchemy)
-│   ├── parser.py               # Log parsing logic
-│   └── loader.py               # Data loading to audit_data schema
-├── analytics/                  # Data Science (Phase 3)
-│   ├── feature_eng.py          # Feature preparation
-│   ├── clustering.py           # K-Means/DBSCAN models
-│   └── anomaly_detection.py    # Isolation Forest
-├── scripts/                    # Utility scripts
-│   └── load_generator.py       # User activity simulation
-├── notebooks/                  # Visualization (Phase 4)
-│   └── analysis_dashboard.ipynb # Interactive Plotly charts
-├── requirements.txt            # Python dependencies
-└── README.md                   # This file
+├── sql/                          # Database initialization scripts
+│   ├── init_schema.sql           # Full schema + roles + working tables
+│   └── pgaudit_setup.sql         # pgAudit configuration helper
+├── data/                         # Data storage (in .gitignore)
+│   ├── raw_logs/                 # PostgreSQL CSV logs
+│   └── processed/                # Processed analysis results
+├── etl/                          # Data engineering
+│   ├── config.py                 # Database connection configuration
+│   ├── db_client.py              # Database connection (SQLAlchemy)
+│   ├── parser.py                 # Log parsing logic
+│   └── loader.py                 # Data loading to audit_data schema
+├── analytics/                    # Data Science
+│   ├── feature_eng.py            # Feature preparation
+│   ├── clustering.py             # K-Means/DBSCAN models
+│   ├── anomaly_detection.py      # Isolation Forest / LOF
+│   └── query_analysis.py         # Query performance analysis
+├── scripts/                      # Utility scripts
+│   ├── load_generator.py         # User activity simulation
+│   └── run_pipeline.py           # Full ETL + Analytics pipeline
+├── notebooks/                    # Visualization
+│   └── analysis_dashboard.ipynb  # Interactive Plotly charts
+├── requirements.txt              # Python dependencies
+├── .env.example                  # Environment variables template
+├── SETUP_POSTGRES.md             # Step-by-step PostgreSQL setup for Windows
+└── README.md                     # This file
 ```
 
 ## Quick Start
 
 ### 1. Prerequisites
 
-- Docker and Docker Compose
+- **PostgreSQL 15+** (installed locally, see [SETUP_POSTGRES.md](SETUP_POSTGRES.md))
+- **pgAudit extension** (installed alongside PostgreSQL)
 - Python 3.9+
 - pip
 
 ### 2. Installation
 
 ```bash
-# Clone the repository
-cd pg-audit-analytics
-
 # Create virtual environment
 python -m venv venv
 venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Start PostgreSQL with pgAudit
+### 3. Configure Database Connection
 
 ```bash
-cd docker
-docker-compose up -d
+# Copy the environment template
+copy .env.example .env
+
+# Edit .env with your PostgreSQL credentials
 ```
 
+### 4. Initialize Database Schema
 
-### 4. Run Analysis
+```bash
+# Run the schema initialization script
+psql -U postgres -f sql/init_schema.sql
+```
 
-Open `notebooks/analysis_dashboard.ipynb` in Jupyter:
+### 5. Configure pgAudit
+
+Edit your `postgresql.conf` (located in PostgreSQL data directory) and add:
+
+```conf
+shared_preload_libraries = 'pgaudit'
+pgaudit.log = 'ddl,write,role'
+pgaudit.log_level = 'log'
+pgaudit.log_parameter = on
+log_statement = 'all'
+log_duration = on
+log_min_duration_statement = 0
+log_destination = 'csvlog'
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.csv'
+log_rotation_age = 1d
+```
+
+Restart PostgreSQL after making changes:
+```bash
+# Services -> PostgreSQL -> Restart
+# Or via pgAdmin
+```
+
+### 6. Run Analysis
 
 ```bash
 jupyter notebook notebooks/analysis_dashboard.ipynb
 ```
 
+## Configuration
 
 ### PostgreSQL Settings
 
-Edit `docker/postgres.conf` to customize:
+Edit `postgresql.conf` (typically at `C:\Program Files\PostgreSQL\16\data\postgresql.conf`) to customize:
 - Log retention period
 - Audit log level
 - CSV log rotation settings
 
+### Environment Variables
 
+Copy `.env.example` to `.env` and set your database connection parameters:
 
+```env
+PG_HOST=localhost
+PG_PORT=5432
+PG_USER=postgres
+PG_PASSWORD=your_password
+PG_DATABASE=postgres
+PG_LOG_PATH=C:\Program Files\PostgreSQL\16\data\log
+```
 
+## Architecture
 
+This project works **without Docker**. PostgreSQL runs as a native Windows service:
+
+```
+PostgreSQL (Windows Service)
+    ├── pgAudit extension (audit logging)
+    ├── CSV log files → parsed by ETL
+    └── audit_data schema → analytics storage
+
+Python (venv)
+    ├── ETL pipeline (parse CSV → load to DB)
+    ├── Analytics (clustering, anomaly detection)
+    └── Dashboard (Jupyter + Plotly)
+```
+
+## PostgreSQL Setup (No Docker)
+
+See [SETUP_POSTGRES.md](SETUP_POSTGRES.md) for complete step-by-step instructions:
+1. Install PostgreSQL 15+ on Windows
+2. Install pgAudit extension
+3. Configure logging and CSV output
+4. Initialize the audit schema
+5. Verify the setup

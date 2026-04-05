@@ -3,7 +3,7 @@
 ## 📊 Project Analysis
 
 The task involves building a complete PostgreSQL audit analytics pipeline with 4 stages:
-1. **Infrastructure**: PostgreSQL + pgAudit setup
+1. **Infrastructure**: PostgreSQL + pgAudit setup (native Windows installation, no Docker)
 2. **ETL**: Log parsing and data loading
 3. **Analytics**: ML-based clustering & anomaly detection
 4. **Visualization**: Interactive dashboard
@@ -11,8 +11,10 @@ The task involves building a complete PostgreSQL audit analytics pipeline with 4
 ### Current State
 - ✅ Good project structure (matches task requirements)
 - ✅ Requirements.txt has all necessary dependencies
-- ⚠️ All Python files are empty — need implementation
-- ⚠️ Docker configs are empty — need configuration
+- ✅ All ETL modules implemented (config.py, db_client.py, parser.py, loader.py)
+- ✅ SQL schema initialization script (sql/init_schema.sql)
+- ✅ Setup guide for Windows (SETUP_POSTGRES.md)
+- ⚠️ Analytics modules have TODO stubs — need implementation
 - ⚠️ No Jupyter notebook content
 
 ---
@@ -21,30 +23,30 @@ The task involves building a complete PostgreSQL audit analytics pipeline with 4
 
 ```
 pg-audit-analytics/
-├── docker/
-│   ├── docker-compose.yml          # PostgreSQL + pgAudit container
-│   ├── postgres.conf               # Extended logging + pgAudit config
-│   └── init.sql                    # Schema initialization (NEW)
+├── sql/                            # Database initialization scripts
+│   ├── init_schema.sql             # Full schema + roles + working tables
+│   └── pgaudit_setup.sql           # pgAudit configuration helper
 ├── data/
 │   ├── raw_logs/                   # Raw CSV logs from PostgreSQL
 │   └── processed/                  # Processed analysis results
 ├── etl/
+│   ├── config.py                   # DB credentials & paths
 │   ├── db_client.py                # DB connection utilities
 │   ├── parser.py                   # CSV log parser
-│   ├── loader.py                   # Data loader to audit_data schema
-│   └── config.py                   # DB credentials & paths (NEW)
+│   └── loader.py                   # Data loader to audit_data schema
 ├── analytics/
 │   ├── feature_eng.py              # Feature extraction
 │   ├── clustering.py               # User clustering (KMeans, DBSCAN)
 │   ├── anomaly_detection.py        # Anomaly detection (IsolationForest)
-│   └── query_analysis.py           # Query performance analysis (NEW)
+│   └── query_analysis.py           # Query performance analysis
 ├── scripts/
 │   ├── load_generator.py           # Simulate DB workload
-│   └── run_pipeline.py             # Full ETL + Analytics pipeline (NEW)
+│   └── run_pipeline.py             # Full ETL + Analytics pipeline
 ├── notebooks/
 │   └── analysis_dashboard.ipynb    # Interactive Plotly dashboard
 ├── requirements.txt
-├── .env.example                    # Environment variables template (NEW)
+├── .env.example                    # Environment variables template
+├── SETUP_POSTGRES.md               # Step-by-step Windows setup guide
 └── README.md
 ```
 
@@ -55,13 +57,12 @@ pg-audit-analytics/
 ### 🔴 MUST STUDY (Core Requirements)
 
 | Tool/Library | Purpose | Priority |
-|----------------|----------------------------------------|------------|
+|--------------|---------|----------|
 | **PostgreSQL** | Core database, schemas, roles, queries |🔥 Critical |
-| **pgAudit**    | Audit extension configuration          | 🔥 Critical |
-| **Docker & Docker Compose** | Container orchestration   | 🔥 Critical |
-| **pandas** | Data manipulation, time series             | 🔥 Critical |
-| **SQLAlchemy** | ORM for database operations            | 🔥 Critical |
-| **psycopg2** | PostgreSQL adapter for Python            | 🔥 Critical |
+| **pgAudit** | Audit extension configuration | 🔥 Critical |
+| **pandas** | Data manipulation, time series | 🔥 Critical |
+| **SQLAlchemy** | ORM for database operations | 🔥 Critical |
+| **psycopg2** | PostgreSQL adapter for Python | 🔥 Critical |
 | **scikit-learn** | ML models (KMeans, DBSCAN, IsolationForest) | 🔥 Critical |
 | **Plotly** | Interactive visualizations | 🔥 Critical |
 | **Jupyter Notebook** | Dashboard & analysis environment | 🔥 Critical |
@@ -69,7 +70,7 @@ pg-audit-analytics/
 ### 🟡 SHOULD KNOW (Important)
 
 | Tool/Library | Purpose |
-|-------------|---------|
+|--------------|---------|
 | **PostgreSQL CSV Log Format** | Understanding log structure |
 | **PostgreSQL Roles & Permissions** | Role-based audit filtering |
 | **numpy** | Numerical operations |
@@ -80,7 +81,7 @@ pg-audit-analytics/
 ### 🟢 NICE TO HAVE (Bonus)
 
 | Tool/Library | Purpose |
-|-------------|---------|
+|--------------|---------|
 | **Apache Superset / Redash** | Alternative dashboards |
 | **matplotlib** | Additional chart types |
 | **joblib/pickle** | Model serialization |
@@ -91,28 +92,28 @@ pg-audit-analytics/
 
 ## 📝 Implementation Plan by File
 
-### Phase 1: Infrastructure (Docker + PostgreSQL)
+### Phase 1: Infrastructure (Native PostgreSQL on Windows)
 
-#### `docker/docker-compose.yml`
-- PostgreSQL 15+ service with pgAudit extension
-- Volume mounts for configs and logs
-- Environment variables for credentials
-- Port mapping (5432)
+#### `SETUP_POSTGRES.md`
+- Step-by-step PostgreSQL installation on Windows
+- pgAudit extension installation guide
+- Configuration of postgresql.conf for audit logging
+- Schema initialization instructions
 
-#### `docker/postgres.conf`
-- `log_statement = 'all'` — log all statements
-- `log_duration = on` — log query duration
-- `log_rotation_age = 1d` — daily rotation
-- `log_filename` — CSV log naming pattern
-- `shared_preload_libraries = 'pgaudit'`
-- `pgaudit.log = 'ddl,write,role'` — audit DDL + DML + role changes
-- `pgaudit.log_level = 'notice'`
-
-#### `docker/init.sql`
+#### `sql/init_schema.sql`
 - Create `audit_data` schema
 - Create normalized tables: `audit_logs`, `query_stats`, `user_activity`
 - Create roles: `admin`, `app_user`, `analyst`, `night_job`
+- Create indexes, views, and helper functions
 - Grant appropriate permissions
+
+#### `postgresql.conf` (manual editing)
+- Located at: `C:\Program Files\PostgreSQL\16\data\postgresql.conf`
+- `shared_preload_libraries = 'pgaudit'`
+- `pgaudit.log = 'ddl,write,role'`
+- `log_statement = 'all'`
+- `log_destination = 'csvlog'`
+- `logging_collector = on`
 
 ---
 

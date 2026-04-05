@@ -1,163 +1,180 @@
 """
-Database client module for PostgreSQL audit analytics.
+Database client utilities.
 
-Provides connection utilities, schema initialization,
-and query execution helpers for the audit_data schema.
+Provides connection management, query execution,
+and bulk data loading for PostgreSQL via SQLAlchemy.
 """
 
-import os
 from contextlib import contextmanager
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.engine import Engine
+
+from etl.config import DB_CONFIG, get_connection_string, ensure_directories
+
+# Global engine singleton
+_engine: Optional[Engine] = None
 
 
-# TODO: Implement create_db_engine()
-# Purpose: Create SQLAlchemy engine with PostgreSQL connection
-# Inputs: host, port, database, user, password (from env or config)
-# Returns: SQLAlchemy engine instance
-# Example: engine = create_db_engine()
-def create_db_engine():
-    """
-    Create and return a SQLAlchemy engine connected to PostgreSQL.
-    
-    Reads connection parameters from environment variables:
-    - PG_HOST (default: localhost)
-    - PG_PORT (default: 5432)
-    - PG_DATABASE (default: postgres)
-    - PG_USER (default: postgres)
-    - PG_PASSWORD
-    
-    Returns:
-        sqlalchemy.engine.Engine: Configured database engine
-    """
-    pass
+def get_engine() -> Engine:
+    """Get or create SQLAlchemy engine (singleton)."""
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            get_connection_string(),
+            pool_pre_ping=True,
+            echo=False,
+        )
+    return _engine
 
 
-# TODO: Implement get_connection()
-# Purpose: Context manager for safe database connections
-# Usage: with get_connection() as conn: conn.execute(text("SELECT 1"))
-# Ensures connection is properly closed after use
+def reset_engine():
+    """Reset engine (useful after config changes)."""
+    global _engine
+    if _engine is not None:
+        _engine.dispose()
+        _engine = None
+
+
 @contextmanager
 def get_connection():
+    """Context manager for database connections.
+
+    Usage:
+        with get_connection() as conn:
+            result = conn.execute(text("SELECT 1"))
     """
-    Context manager that yields a database connection.
-    
-    Ensures proper cleanup (close/rollback) even if exceptions occur.
-    
-    Yields:
-        sqlalchemy.engine.Connection: Active database connection
-    """
-    pass
+    engine = get_engine()
+    with engine.begin() as conn:
+        yield conn
 
 
-# TODO: Implement init_audit_schema()
-# Purpose: Create the audit_data schema and required tables
-# Tables to create:
-#   1. audit_logs (timestamp, user, operation, table_name, duration, raw_query)
-#   2. query_stats (query_hash, avg_duration, count, min_duration, max_duration)
-#   3. user_activity (user, hour, operation_type, count)
-# Should be idempotent (safe to run multiple times)
-def init_audit_schema():
-    """
-    Initialize the audit_data schema with all required tables.
-    
-    Creates tables if they don't exist:
-    - audit_logs: Raw parsed log entries
-    - query_stats: Aggregated query performance metrics
-    - user_activity: User behavior patterns by hour
-    
-    Uses CREATE TABLE IF NOT EXISTS for idempotency.
-    """
-    pass
+def execute_query(query: str, params: Optional[Dict] = None) -> pd.DataFrame:
+    """Execute a SELECT query and return results as DataFrame.
 
-
-# TODO: Implement execute_query()
-# Purpose: Generic query executor with optional parameter binding
-# Inputs: SQL query string, optional parameters dict
-# Returns: List of tuples (query results)
-# Example: results = execute_query("SELECT * FROM audit_logs WHERE username = :user", {"user": "admin"})
-def execute_query(query, params=None):
-    """
-    Execute a SQL query and return results.
-    
     Args:
-        query (str): SQL query string with optional :named parameters
-        params (dict, optional): Parameter values for the query
-    
+        query: SQL query string
+        params: Optional query parameters
+
     Returns:
-        list: Query results as list of tuples
+        DataFrame with query results
     """
-    pass
+    with get_connection() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
 
 
-# TODO: Implement bulk_insert()
-# Purpose: Efficiently insert multiple records into a table
-# Inputs: table_name, list of dicts (records)
-# Uses SQLAlchemy executemany for performance
-# Returns: number of inserted rows
-# Example: bulk_insert("audit_logs", [{"timestamp": ..., "user": ...}, ...])
-def bulk_insert(table_name, records):
-    """
-    Perform bulk insert into the specified table.
-    
-    Uses SQLAlchemy's executemany for efficient batch insertion.
-    
+def execute_statement(query: str, params: Optional[Dict] = None) -> None:
+    """Execute a DDL/DML statement (no return value).
+
     Args:
-        table_name (str): Target table name in audit_data schema
-        records (list[dict]): List of dictionaries with column values
-    
+        query: SQL statement string
+        params: Optional statement parameters
+    """
+    with get_connection() as conn:
+        conn.execute(text(query), params or {})
+
+
+def bulk_insert(df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
+    """Insert DataFrame into PostgreSQL table.
+
+    Args:
+        df: Data to insert
+        table_name: Target table name (in audit_data schema)
+        if_exists: 'append', 'replace', or 'fail'
+
     Returns:
-        int: Number of rows inserted
+        Number of rows inserted
     """
-    pass
+    engine = get_engine()
+    full_table = f"audit_data.{table_name}"
+    rows_inserted = len(df)
+
+    df.to_sql(
+        name=table_name,
+        con=engine,
+        schema="audit_data",
+        if_exists=if_exists,
+        index=False,
+        method="multi",
+        chunksize=1000,
+    )
+
+    return rows_inserted
 
 
-# TODO: Implement create_indexes()
-# Purpose: Create performance indexes on audit tables
-# Indexes to create:
-#   - idx_audit_logs_timestamp ON audit_logs(timestamp)
-#   - idx_audit_logs_user ON audit_logs(username)
-#   - idx_audit_logs_operation ON audit_logs(operation_type)
-# Speeds up analytics queries
-def create_indexes():
+def init_audit_schema(sql_file_path: Optional[str] = None) -> None:
+    """Initialize audit_data schema by running SQL script.
+
+    Args:
+        sql_file_path: Path to SQL initialization script.
+                       Defaults to sql/init_schema.sql in project root.
     """
-    Create indexes on audit_data tables for query performance.
-    
-    Indexes:
-    - audit_logs: timestamp, username, operation_type
-    - query_stats: query_hash
-    - user_activity: username, hour
-    """
-    pass
+    from etl.config import PROJECT_ROOT
+
+    if sql_file_path is None:
+        sql_file_path = str(PROJECT_ROOT / "sql" / "init_schema.sql")
+
+    with open(sql_file_path, "r", encoding="utf-8") as f:
+        sql_script = f.read()
+
+    execute_statement(sql_script)
+    print(f"Audit schema initialized from: {sql_file_path}")
 
 
-# TODO: Implement run_etl_pipeline()
-# Purpose: Main orchestrator — parse logs and load to database
-# Steps:
-#   1. Find all CSV log files in data/raw_logs/
-#   2. Parse each file using etl.parser
-#   3. Clean and validate records
-#   4. Bulk insert into audit_logs table
-#   5. Create indexes
-# Returns: dict with stats (files_processed, records_loaded, errors)
-def run_etl_pipeline():
-    """
-    Run the complete ETL pipeline: parse → clean → load.
-    
-    Pipeline steps:
-    1. Discover CSV log files in data/raw_logs/
-    2. Parse each file using parser module
-    3. Validate and clean records
-    4. Bulk insert into audit_data.audit_logs
-    5. Create performance indexes
-    
+def get_table_count(table_name: str) -> int:
+    """Get row count for a table in audit_data schema.
+
+    Args:
+        table_name: Table name (without schema prefix)
+
     Returns:
-        dict: Statistics {'files_processed': int, 'records_loaded': int, 'errors': int}
+        Number of rows in the table
     """
-    pass
+    query = f"SELECT COUNT(*) as cnt FROM audit_data.{table_name}"
+    result = execute_query(query)
+    return int(result.iloc[0]["cnt"])
+
+
+def list_audit_tables() -> List[str]:
+    """List all tables in audit_data schema.
+
+    Returns:
+        List of table names
+    """
+    query = """
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'audit_data'
+        ORDER BY tablename
+    """
+    result = execute_query(query)
+    return result["tablename"].tolist()
+
+
+def run_sql_file(sql_file_path: str) -> None:
+    """Run a SQL file against the database.
+
+    Args:
+        sql_file_path: Absolute path to .sql file
+    """
+    with open(sql_file_path, "r", encoding="utf-8") as f:
+        sql_script = f.read()
+
+    execute_statement(sql_script)
+    print(f"Executed SQL file: {sql_file_path}")
 
 
 if __name__ == "__main__":
-    # TODO: When run directly, execute the ETL pipeline
-    # Print results summary
-    pass
+    ensure_directories()
+    print("Testing database connection...")
+    try:
+        tables = list_audit_tables()
+        print(f"Found {len(tables)} tables in audit_data schema:")
+        for t in tables:
+            count = get_table_count(t)
+            print(f"  - {t}: {count} rows")
+    except Exception as e:
+        print(f"Connection failed: {e}")
+        print("Make sure PostgreSQL is running and .env is configured.")
