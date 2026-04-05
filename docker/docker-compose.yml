@@ -1,0 +1,49 @@
+
+
+# TODO: Define PostgreSQL service with pgAudit extension
+# Service name: postgres
+# Image: postgres:15-alpine (or latest)
+# Ports: 5432:5432
+# Environment variables:
+#   POSTGRES_USER: postgres
+#   POSTGRES_PASSWORD: postgres
+#   POSTGRES_DB: postgres
+# Volumes:
+#   - postgres_data:/var/lib/postgresql/data
+#   - ./postgres.conf:/etc/postgresql/postgresql.conf (mount config)
+#   - ./logs:/var/log/postgresql (mount log directory)
+# Command: postgres -c config_file=/etc/postgresql/postgresql.conf
+# Health check: pg_isready -U postgres
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: pg-audit-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+      POSTGRES_DB: ${PG_DATABASE:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres.conf:/etc/postgresql/custom.conf
+      - ../data/raw_logs:/var/log/postgresql/logs
+    command: >
+      postgres -c config_file=/etc/postgresql/custom.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+# TODO: Add notes about pgAudit installation
+# pgAudit must be installed in the Docker image
+# Option 1: Use official postgres image and install pgaudit via apt
+# Option 2: Use custom Dockerfile with pgaudit pre-installed
+# For this project, we'll create a Dockerfile that extends postgres image
