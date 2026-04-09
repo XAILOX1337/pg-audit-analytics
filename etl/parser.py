@@ -7,8 +7,9 @@ into structured DataFrame suitable for loading into the audit_data schema.
 Works WITHOUT pgAudit — uses standard PostgreSQL statement logging.
 """
 
-import re
 import csv
+import sys
+import re
 import hashlib
 import io
 from pathlib import Path
@@ -18,6 +19,10 @@ import pandas as pd
 import numpy as np
 
 from config import PG_LOG_PATH, RAW_LOGS_DIR, CSV_ENCODING
+
+# Increase CSV field size limit for very long SQL queries in logs
+# On Windows, sys.maxsize can overflow C long, so use a fixed large value
+csv.field_size_limit(1073741824)  # 1 GB
 
 
 # PostgreSQL CSV log column positions (standard csvlog format, 22 columns):
