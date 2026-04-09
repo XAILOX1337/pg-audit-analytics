@@ -4,7 +4,7 @@ PostgreSQL audit log analysis tool with machine learning-based anomaly detection
 
 ## Features
 
-- **Automated Log Collection**: PostgreSQL with pgAudit extension for comprehensive audit logging
+- **Automated Log Collection**: PostgreSQL with standard CSV logging (`log_statement = 'all'`)
 - **ETL Pipeline**: Parse CSV logs and load into structured database schema
 - **Feature Engineering**: Extract meaningful features from audit data
 - **Clustering Analysis**: K-Means and DBSCAN for user behavior patterns
@@ -47,7 +47,6 @@ pg-audit-analytics/
 ### 1. Prerequisites
 
 - **PostgreSQL 15+** (installed locally, see [SETUP_POSTGRES.md](SETUP_POSTGRES.md))
-- **pgAudit extension** (installed alongside PostgreSQL)
 - Python 3.9+
 - pip
 
@@ -78,15 +77,11 @@ copy .env.example .env
 psql -U postgres -f sql/init_schema.sql
 ```
 
-### 5. Configure pgAudit
+### 5. Configure PostgreSQL Logging
 
 Edit your `postgresql.conf` (located in PostgreSQL data directory) and add:
 
 ```conf
-shared_preload_libraries = 'pgaudit'
-pgaudit.log = 'ddl,write,role'
-pgaudit.log_level = 'log'
-pgaudit.log_parameter = on
 log_statement = 'all'
 log_duration = on
 log_min_duration_statement = 0
@@ -137,7 +132,7 @@ This project works **without Docker**. PostgreSQL runs as a native Windows servi
 
 ```
 PostgreSQL (Windows Service)
-    ├── pgAudit extension (audit logging)
+    ├── Standard CSV logging (log_statement = 'all')
     ├── CSV log files → parsed by ETL
     └── audit_data schema → analytics storage
 
@@ -151,7 +146,6 @@ Python (venv)
 
 See [SETUP_POSTGRES.md](SETUP_POSTGRES.md) for complete step-by-step instructions:
 1. Install PostgreSQL 15+ on Windows
-2. Install pgAudit extension
-3. Configure logging and CSV output
-4. Initialize the audit schema
-5. Verify the setup
+2. Configure CSV logging (`log_statement = 'all'`, `log_destination = 'csvlog'`)
+3. Initialize the audit schema
+4. Verify the setup

@@ -1,17 +1,18 @@
-# PostgreSQL + pgAudit Setup Guide for Windows (No Docker)
+# PostgreSQL Setup Guide for Windows (No Docker)
 
-This guide walks you through installing and configuring PostgreSQL with pgAudit on Windows — **no Docker required**.
+This guide walks you through installing and configuring PostgreSQL on Windows — **no Docker, no pgAudit required**.
+
+The project uses **standard PostgreSQL CSV logging** (`log_statement = 'all'`) — no extensions needed.
 
 ---
 
 ## Table of Contents
 
 1. [Install PostgreSQL](#1-install-postgresql)
-2. [Install pgAudit Extension](#2-install-pgaudit-extension)
-3. [Configure PostgreSQL for Audit Logging](#3-configure-postgresql-for-audit-logging)
-4. [Initialize the Database Schema](#4-initialize-the-database-schema)
-5. [Verify the Setup](#5-verify-the-setup)
-6. [Troubleshooting](#troubleshooting)
+2. [Configure PostgreSQL for Audit Logging](#2-configure-postgresql-for-audit-logging)
+3. [Initialize the Database Schema](#3-initialize-the-database-schema)
+4. [Verify the Setup](#4-verify-the-setup)
+5. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -44,48 +45,7 @@ You should see PostgreSQL version output. If it asks for a password, enter the o
 
 ---
 
-## 2. Install pgAudit Extension
-
-### Option A: Using Stack Builder (Easiest)
-
-1. Open **Stack Builder** (installed alongside PostgreSQL)
-2. Select your PostgreSQL installation
-3. Expand **Extensions** → check **pgAudit**
-4. Click **Next** and follow the prompts
-
-### Option B: Manual Installation
-
-If pgAudit is not in Stack Builder:
-
-1. Download the matching pgAudit version from:
-   https://github.com/pgaudit/pgaudit/releases
-   - For PostgreSQL 16: download `pgaudit-16`
-   - For PostgreSQL 15: download `pgaudit-15`
-
-2. Extract the archive
-3. Copy the files:
-   - `pgaudit.dll` → `C:\Program Files\PostgreSQL\16\lib`
-   - `pgaudit.control` and `pgaudit--*.sql` → `C:\Program Files\PostgreSQL\16\share\extension`
-
-4. Verify installation by opening `psql`:
-
-```cmd
-psql -U postgres -c "SELECT * FROM pg_available_extensions WHERE name = 'pgaudit';"
-```
-
-You should see `pgaudit` listed.
-
-### Enable pgAudit
-
-Run in psql:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pgaudit;
-```
-
----
-
-## 3. Configure PostgreSQL for Audit Logging
+## 2. Configure PostgreSQL for Audit Logging
 
 ### Find `postgresql.conf`
 
@@ -104,18 +64,10 @@ Open the file in a text editor **as Administrator** and add/modify these setting
 ```conf
 # ============================================================
 # pg-audit-analytics Configuration
+# Uses standard PostgreSQL logging — NO pgAudit required
 # ============================================================
 
-# --- Load pgAudit extension ---
-shared_preload_libraries = 'pgaudit'
-
-# --- pgAudit settings ---
-pgaudit.log = 'ddl,write,role'
-pgaudit.log_level = 'log'
-pgaudit.log_parameter = on
-pgaudit.log_catalog = off
-
-# --- Statement logging ---
+# --- Statement logging (captures ALL SQL) ---
 log_statement = 'all'
 log_duration = on
 log_min_duration_statement = 0
@@ -137,6 +89,8 @@ log_disconnections = on
 log_lock_waits = on
 ```
 
+> **Note:** This project does **NOT** require `shared_preload_libraries` or pgAudit. Standard statement logging is sufficient.
+
 ### Restart PostgreSQL
 
 After saving the config file, restart the service:
@@ -149,8 +103,8 @@ After saving the config file, restart the service:
 **Method 2 — Command line (as Administrator):**
 
 ```cmd
-net stop postgresql-x64-16
-net start postgresql-x64-16
+net stop postgresql-x64-18
+net start postgresql-x64-18
 ```
 
 ### Verify Logging is Working
@@ -167,7 +121,13 @@ Check if CSV logs are created:
 dir "C:\Program Files\PostgreSQL\16\data\log\*.csv"
 ```
 
-You should see at least one CSV file.
+You should see at least one CSV file. Open it — you'll see rows like:
+
+```csv
+2024-04-06 12:00:00.000 UTC,"postgres","postgres",1234,"[local]",...,"SELECT",...,"statement: SELECT 1 AS test;",...
+```
+
+The `command_tag` column (column 8) shows `SELECT`, `INSERT`, `UPDATE`, etc. — this is what the parser reads.
 
 ---
 
