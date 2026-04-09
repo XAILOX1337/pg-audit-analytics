@@ -64,7 +64,7 @@ Open the file in a text editor **as Administrator** and add/modify these setting
 ```conf
 # ============================================================
 # pg-audit-analytics Configuration
-# Uses standard PostgreSQL logging — NO pgAudit required
+# Uses standard PostgreSQL logging
 # ============================================================
 
 # --- Statement logging (captures ALL SQL) ---
