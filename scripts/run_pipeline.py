@@ -54,19 +54,22 @@ def run_full_pipeline(generate_data=True, duration_hours=24, replace=False):
     print("#" * 60)
 
     # ------------------------------------------------------------------
-    # Stage 1: Generate test data
+    # Stage 1: Generate test data — execute directly against PostgreSQL
     # ------------------------------------------------------------------
     if generate_data:
         print("\n" + "=" * 60)
-        print("Stage 1: Load Generation")
+        print("Stage 1: Load Generation (direct PostgreSQL)")
         print("=" * 60)
         from load_generator import run_load_simulation
 
-        gen_stats = run_load_simulation(duration_hours=duration_hours)
+        # Convert hours to minutes for the new generator
+        duration_minutes = max(duration_hours * 60, 5)
+        gen_stats = run_load_simulation(duration_minutes=duration_minutes)
         results["generation"] = gen_stats
-        print(f"  CSV log: {gen_stats['log_file']} ({gen_stats['total_queries']} records)")
+        print(f"  {gen_stats['total_queries']} queries executed against PostgreSQL")
+        print(f"  Logs written to PostgreSQL CSV log directory")
     else:
-        print("\n  Skipping load generation (using existing CSV logs)")
+        print("\n  Skipping load generation (using existing PostgreSQL logs)")
 
     # ------------------------------------------------------------------
     # Stage 2: ETL
