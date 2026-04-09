@@ -25,7 +25,7 @@ DB_CONFIG = {
 # Log path for reading PostgreSQL CSV logs
 PG_LOG_PATH = os.getenv(
     "PG_LOG_PATH",
-    r"C:\Program Files\PostgreSQL\16\data\log"
+    r"C:\Program Files\PostgreSQL\18\data\log"
 )
 
 # Project paths
@@ -35,7 +35,7 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 # ETL settings
 BATCH_SIZE = 1000
-CSV_ENCODING = "utf-8-sig"  # Handles BOM in CSV files
+CSV_ENCODING = "utf8"
 
 
 def get_connection_string():

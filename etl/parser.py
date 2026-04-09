@@ -1,45 +1,51 @@
 """
 CSV log parser for PostgreSQL audit logs.
 
-Parses pgAudit CSV log files into structured DataFrame
-suitable for loading into the audit_data schema.
+Parses standard PostgreSQL CSV log files (log_destination = 'csvlog')
+into structured DataFrame suitable for loading into the audit_data schema.
+
+Works WITHOUT pgAudit — uses standard PostgreSQL statement logging.
 """
 
 import re
+import csv
+import hashlib
+import io
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import numpy as np
 
-from etl.config import PG_LOG_PATH, RAW_LOGS_DIR, CSV_ENCODING
+from config import PG_LOG_PATH, RAW_LOGS_DIR, CSV_ENCODING
 
 
-# pgAudit CSV log column positions (PostgreSQL csvlog format):
-# 0: log_time
-# 1: user_name
-# 2: database_name
-# 3: process_id
-# 4: connection_from
-# 5: session_id
-# 6: session_line_num
-# 7: command_tag
-# 8: session_start_time
-# 9: virtual_transaction_id
+# PostgreSQL CSV log column positions (standard csvlog format, 22 columns):
+#  0: log_time
+#  1: user_name
+#  2: database_name
+#  3: process_id
+#  4: connection_from
+#  5: session_id
+#  6: session_line_num
+#  7: command_tag          ← SELECT, INSERT, UPDATE, DELETE, CREATE, etc.
+#  8: session_start_time
+#  9: virtual_transaction_id
 # 10: transaction_id
-# 11: error_severity
-# 12: error/query message
-# 13: detail
-# 14: hint
-# 15: internal_query
-# 16: internal_query_pos
-# 17: context
-# 18: location
-# 19: application_name
-# 20+ (pgAudit specific in message):
-#     AUDIT: SESSION,<id>,<type>,<category>,<statement>,<parameter>,...
+# 11: error_severity       ← LOG, FATAL, ERROR, etc.
+# 12: sql_state_code       ← 00000, etc.
+# 13: message              ← the actual SQL statement when log_statement='all'
+# 14: detail
+# 15: hint
+# 16: internal_query
+# 17: internal_query_pos
+# 18: context
+# 19: location
+# 20: application_name
+# 21: backend_type
+# 22: leader_pid
 
-# Map operation types to categories
+# Map command_tag (operation type) to category
 OPERATION_CATEGORY_MAP = {
     "SELECT": "READ",
     "INSERT": "WRITE",
@@ -51,59 +57,107 @@ OPERATION_CATEGORY_MAP = {
     "TRUNCATE": "DDL",
     "GRANT": "DCL",
     "REVOKE": "DCL",
+    "DISCARD": "DCL",
+    "COPY": "WRITE",
+}
+
+# Command tags that represent log entries we want to capture
+VALID_COMMAND_TAGS = {
+    "SELECT", "INSERT", "UPDATE", "DELETE",
+    "CREATE", "ALTER", "DROP", "TRUNCATE",
+    "GRANT", "REVOKE", "COPY",
 }
 
 
+def _extract_command_tag_from_statement(message: str) -> Optional[str]:
+    """Extract command type from SQL statement when command_tag is empty.
+
+    This handles cases where log_statement='all' is set but command_tag
+    field is empty in the CSV log.
+    """
+    if not message:
+        return None
+
+    # Remove 'statement: ' prefix if present
+    stmt = message
+    if stmt.lower().startswith("statement: "):
+        stmt = stmt[11:]
+
+    stmt_upper = stmt.strip().upper()
+
+    # Check for common SQL commands at the start of the statement
+    commands = [
+        "SELECT", "INSERT", "UPDATE", "DELETE",
+        "CREATE", "ALTER", "DROP", "TRUNCATE",
+        "GRANT", "REVOKE", "COPY", "DISCARD",
+    ]
+
+    for cmd in commands:
+        if stmt_upper.startswith(cmd):
+            return cmd
+
+    return None
+
+
 def parse_csv_log_line(line: str) -> Optional[Dict]:
-    """Parse a single pgAudit CSV log line.
+    """Parse a single standard PostgreSQL CSV log line.
+
+    Works with log_destination = 'csvlog' and log_statement = 'all'.
 
     Args:
         line: Raw CSV log line from PostgreSQL
 
     Returns:
-        Dict with parsed fields or None if line is not an audit entry
+        Dict with parsed fields or None if line is not relevant
     """
     line = line.strip()
     if not line:
         return None
 
     try:
-        # Parse CSV fields (handle quoted fields with commas)
-        fields = _csv_split(line)
-        if len(fields) < 13:
+        
+        reader = csv.reader(io.StringIO(line))
+        fields = next(reader)
+        
+        if len(fields) < 14:
             return None
 
-        log_time = fields[0].strip('"')
-        username = fields[1].strip('"')
-        database = fields[2].strip('"')
-        session_id = fields[5].strip('"')
-        command_tag = fields[7].strip('"')
-        message = fields[12].strip('"')
-        application_name = fields[19].strip('"') if len(fields) > 19 else ""
+        log_time = fields[0]
+        username = fields[1]
+        database = fields[2]
+        session_id = fields[5]
+        command_tag = fields[7]
+        severity = fields[11]
+        message = fields[13]  # message is at index 13
+        application_name = fields[20] if len(fields) > 20 else ""
 
-        # Only process pgAudit entries
-        if "AUDIT:" not in message:
+        # If command_tag is empty, try to extract it from the SQL statement
+        if not command_tag:
+            command_tag = _extract_command_tag_from_statement(message)
+
+        # Filter: only process rows with valid command tags
+        if command_tag not in VALID_COMMAND_TAGS:
             return None
 
-        # Parse pgAudit message format:
-        # AUDIT: SESSION,<id>,<type>,<category>,<statement>,<parameter>,<oid>,<relation>
-        audit_parts = _parse_audit_message(message)
-        if audit_parts is None:
+        
+        if not username or username == "":
             return None
 
-        operation_type = audit_parts.get("type", "UNKNOWN").upper()
-        operation_category = audit_parts.get("category", "OTHER").upper()
-        raw_query = audit_parts.get("statement", "")
-        table_name = audit_parts.get("relation", "")
+        # The SQL statement is in field 13 (message) when log_statement = 'all'
+        # Extract actual SQL from 'statement:' prefix if present
+        raw_query = _extract_statement(message)
 
-        # Normalize category if missing
-        if not operation_category or operation_category == "NONE":
-            operation_category = OPERATION_CATEGORY_MAP.get(operation_type, "OTHER")
+        # Determine operation type from command_tag
+        operation_type = command_tag.upper()
+        operation_category = OPERATION_CATEGORY_MAP.get(operation_type, "OTHER")
 
-        # Extract duration if available (from separate log line or message)
+        # Extract table name from the SQL statement
+        table_name = _extract_table_name(raw_query) if raw_query else ""
+
+        # Extract duration if present (appears as: duration: 12.345 ms)
         duration_ms = _extract_duration(message)
 
-        # Generate simple query hash
+        # Compute query hash for deduplication
         query_hash = _compute_query_hash(raw_query) if raw_query else None
 
         return {
@@ -120,62 +174,40 @@ def parse_csv_log_line(line: str) -> Optional[Dict]:
             "application_name": application_name,
         }
 
-    except (IndexError, ValueError):
+    except (IndexError, ValueError, StopIteration):
         return None
+
+
+def _extract_statement(message: str) -> str:
+    """Extract the actual SQL statement from the log message.
+
+    In standard PostgreSQL logs with log_statement='all', the message
+    field contains the raw SQL. It may have a 'statement: ' prefix.
+
+    Args:
+        message: Log message field from CSV
+
+    Returns:
+        The SQL statement string
+    """
+    if not message:
+        return ""
+
+    # Remove 'statement: ' prefix if present
+    if message.lower().startswith("statement: "):
+        return message[11:].strip()
+
+    return message.strip()
 
 
 def _csv_split(line: str) -> List[str]:
-    """Split CSV line respecting quoted fields."""
-    fields = []
-    current = ""
-    in_quotes = False
-
-    for char in line:
-        if char == '"':
-            in_quotes = not in_quotes
-            current += char
-        elif char == ',' and not in_quotes:
-            fields.append(current)
-            current = ""
-        else:
-            current += char
-
-    fields.append(current)
-    return fields
-
-
-def _parse_audit_message(message: str) -> Optional[Dict]:
-    """Parse pgAudit AUDIT message into components.
-
-    Format: AUDIT: SESSION,<id>,<type>,<category>,<statement>,<parameter>,<oid>,<relation>
+    """Split CSV line respecting quoted fields.
+    
+    Deprecated: Use Python's csv module instead for proper handling.
     """
-    if not message.startswith("AUDIT:"):
-        return None
-
-    # Remove "AUDIT: " prefix
-    content = message[6:].strip()
-
-    parts = _csv_split(content)
-    if len(parts) < 5:
-        return None
-
-    result = {
-        "session_type": parts[0].strip() if len(parts) > 0 else "",
-        "id": parts[1].strip() if len(parts) > 1 else "",
-        "type": parts[2].strip() if len(parts) > 2 else "UNKNOWN",
-        "category": parts[3].strip() if len(parts) > 3 else "NONE",
-        "statement": parts[4].strip() if len(parts) > 4 else "",
-    }
-
-    # Extract relation (table name) if present
-    if len(parts) > 7 and parts[7].strip():
-        result["relation"] = parts[7].strip()
-
-    # Extract table name from statement if not in audit fields
-    if not result.get("relation") and result["statement"]:
-        result["relation"] = _extract_table_name(result["statement"])
-
-    return result
+    import io
+    reader = csv.reader(io.StringIO(line))
+    return next(reader)
 
 
 def _extract_table_name(query: str) -> str:
@@ -229,6 +261,8 @@ def _compute_query_hash(query: str) -> str:
 def parse_log_file(file_path: str, max_lines: Optional[int] = None) -> pd.DataFrame:
     """Parse an entire pgAudit CSV log file.
 
+    Handles multiline CSV log entries (SQL statements that span multiple lines).
+
     Args:
         file_path: Path to CSV log file
         max_lines: Maximum lines to parse (None = all)
@@ -238,24 +272,51 @@ def parse_log_file(file_path: str, max_lines: Optional[int] = None) -> pd.DataFr
     """
     records = []
     lines_processed = 0
+    current_record_lines = []
+    in_multiline_record = False
 
     with open(file_path, "r", encoding=CSV_ENCODING, errors="replace") as f:
         for line in f:
             if max_lines and lines_processed >= max_lines:
                 break
 
-            record = parse_csv_log_line(line)
-            if record:
-                records.append(record)
+            line = line.rstrip('\n').rstrip('\r')
+            
+            # Check if this line starts a new CSV record
+            # A new record starts with a timestamp pattern: YYYY-MM-DD HH:MM:SS
+            if re.match(r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}', line):
+                # If we have accumulated lines from a previous multiline record, process them
+                if current_record_lines:
+                    full_line = '\n'.join(current_record_lines)
+                    record = parse_csv_log_line(full_line)
+                    if record:
+                        records.append(record)
+                    current_record_lines = []
+                    in_multiline_record = False
+                
+                # Start new record
+                current_record_lines.append(line)
+                in_multiline_record = True
+            elif in_multiline_record:
+                # This is a continuation of the previous record
+                current_record_lines.append(line)
 
             lines_processed += 1
+
+    # Process the last accumulated multiline record
+    if current_record_lines:
+        full_line = '\n'.join(current_record_lines)
+        record = parse_csv_log_line(full_line)
+        if record:
+            records.append(record)
 
     df = pd.DataFrame(records)
     if df.empty:
         return df
-
     # Convert timestamp to datetime
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    # Remove timezone abbreviation (MSK, etc.)
+    df["timestamp"] = df["timestamp"].astype(str).str.replace(r'\s+[A-Z]{2,4}$', '', regex=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format='%Y-%m-%d %H:%M:%S.%f', errors="coerce")
 
     # Drop rows with invalid timestamps
     df = df.dropna(subset=["timestamp"])
@@ -272,6 +333,7 @@ def find_csv_log_files(log_path: Optional[str] = None) -> List[Path]:
     Returns:
         List of CSV file paths sorted by modification time
     """
+    print(PG_LOG_PATH)
     path = Path(log_path or PG_LOG_PATH)
     if not path.exists():
         print(f"Log directory not found: {path}")

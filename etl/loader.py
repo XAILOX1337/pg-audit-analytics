@@ -8,14 +8,13 @@ and provides aggregation utilities.
 import pandas as pd
 from typing import Optional
 
-from etl.config import RAW_LOGS_DIR, PROCESSED_DIR, BATCH_SIZE
-from etl.db_client import (
+from db_client import (
     bulk_insert,
     execute_query,
     execute_statement,
     get_table_count,
 )
-from etl.parser import run_parser, clean_data
+from parser import run_parser, clean_data
 
 
 def load_audit_logs(df: pd.DataFrame, if_exists: str = "append") -> int:
@@ -117,12 +116,12 @@ def compute_query_stats() -> int:
             operation_type,
             table_name,
             COUNT(*) AS execution_count,
-            ROUND(AVG(duration_ms), 3) AS avg_duration_ms,
-            ROUND(MIN(duration_ms), 3) AS min_duration_ms,
-            ROUND(MAX(duration_ms), 3) AS max_duration_ms,
-            ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 3) AS p50_duration_ms,
-            ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms), 3) AS p95_duration_ms,
-            ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms), 3) AS p99_duration_ms,
+            ROUND(AVG(duration_ms)::numeric, 3) AS avg_duration_ms,
+            ROUND(MIN(duration_ms)::numeric, 3) AS min_duration_ms,
+            ROUND(MAX(duration_ms)::numeric, 3) AS max_duration_ms,
+            ROUND((PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms))::numeric, 3) AS p50_duration_ms,
+            ROUND((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms))::numeric, 3) AS p95_duration_ms,
+            ROUND((PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms))::numeric, 3) AS p99_duration_ms,
             MIN(timestamp) AS first_seen,
             MAX(timestamp) AS last_seen
         FROM audit_data.audit_logs

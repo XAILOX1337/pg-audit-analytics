@@ -6,13 +6,13 @@ and bulk data loading for PostgreSQL via SQLAlchemy.
 """
 
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from etl.config import DB_CONFIG, get_connection_string, ensure_directories
+from config import DB_CONFIG, get_connection_string, ensure_directories
 
 # Global engine singleton
 _engine: Optional[Engine] = None
