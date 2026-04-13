@@ -262,7 +262,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hours",
         type=int,
-        default=24,
+        default=1,
         help="Simulation duration in hours (for load generation)"
     )
     parser.add_argument(
